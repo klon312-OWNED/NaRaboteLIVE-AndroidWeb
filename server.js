@@ -15,6 +15,7 @@
 'use strict';
 
 const express = require('express');
+const compression = require('compression');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -259,6 +260,7 @@ function initModules() {
 const app = express();
 const server = http.createServer(app);
 
+app.use(compression());
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 
@@ -1366,16 +1368,67 @@ server.listen(PORT, '0.0.0.0', () => {
 
     /* --- Туннель для доступа из интернета --- */
     if (process.argv.includes('--tunnel') || process.env.NARABOTE_TUNNEL) {
-        (async () => {
+        const { spawn } = require('child_process');
+        let tunnelUrl = null;
+        let retries = 0;
+
+        function startCloudflared() {
+            try {
+                const proc = spawn('cloudflared', ['tunnel', '--protocol', 'http2', '--url', 'http://127.0.0.1:' + PORT], { stdio: ['ignore', 'pipe', 'pipe'] });
+                let found = false;
+                proc.stderr.on('data', d => {
+                    const txt = d.toString();
+                    const m = txt.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+                    if (m && !found) {
+                        found = true;
+                        tunnelUrl = m[0];
+                        retries = 0;
+                        console.log('  Туннель:     ' + tunnelUrl);
+                        console.log('  Телефон:     Введите адрес туннеля в приложении');
+                        console.log('');
+                    }
+                    if (txt.includes('Registered tunnel connection')) {
+                        console.log('  [cloudflared] Подключено к Cloudflare');
+                    }
+                    if (txt.includes('Retrying connection') || txt.includes('Connection terminated')) {
+                        console.log('  [cloudflared] Переподключение...');
+                    }
+                });
+                proc.stdout.on('data', d => {
+                    const m = d.toString().match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+                    if (m && !found) { found = true; tunnelUrl = m[0]; console.log('  Туннель:     ' + tunnelUrl); }
+                });
+                proc.on('close', (code) => {
+                    console.log('  [cloudflared] Завершён (код ' + code + ')');
+                    retries++;
+                    if (retries < 10) {
+                        console.log('  [cloudflared] Перезапуск через 3с...');
+                        setTimeout(startCloudflared, 3000);
+                    }
+                });
+                proc.on('error', () => {
+                    console.log('  Cloudflared не найден, пробуем localtunnel...');
+                    startLocaltunnel();
+                });
+            } catch (_) {
+                startLocaltunnel();
+            }
+        }
+
+        function startLocaltunnel() {
             try {
                 const lt = require('localtunnel');
-                const tunnel = await lt({ port: PORT });
-                console.log('  Туннель:     ' + tunnel.url);
-                console.log('  Телефон:     Введите адрес туннеля в приложении');
-                console.log('');
-                tunnel.on('close', () => { console.log('Туннель закрыт'); });
-            } catch (e) { console.error('Ошибка туннеля:', e.message); }
-        })();
+                lt({ port: PORT }).then(tunnel => {
+                    tunnelUrl = tunnel.url;
+                    console.log('  Туннель:     ' + tunnelUrl);
+                    console.log('  Телефон:     Введите адрес туннеля в приложении');
+                    console.log('');
+                    tunnel.on('close', () => { console.log('  Туннель закрыт, перезапуск...'); startLocaltunnel(); });
+                }).catch(e => { console.error('  Ошибка localtunnel:', e.message); });
+            } catch (e) { console.error('  Ошибка туннеля:', e.message); }
+        }
+
+        startCloudflared();
     }
 });
 
