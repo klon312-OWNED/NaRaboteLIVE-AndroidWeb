@@ -30,9 +30,10 @@ const TaskManager = require('./lib/tasks');
 const TemplateManager = require('./lib/templates');
 
 /* --- Базовый каталог для данных --- */
-const DATA_ROOT = (process.pkg || (process.argv0 && process.argv0.includes('pkg')))
+const DATA_ROOT = process.env.NARABOTE_DATA_DIR ||
+    ((process.pkg || (process.argv0 && process.argv0.includes('pkg')))
     ? path.dirname(process.execPath)
-    : __dirname;
+    : __dirname);
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 let config = {};
