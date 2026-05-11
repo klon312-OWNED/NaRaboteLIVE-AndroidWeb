@@ -25,8 +25,9 @@
      * ========================================================== */
 
     if (!window.api) {
+        const DEFAULT_SERVER = 'https://narabote-live.onrender.com';
         let API_BASE = localStorage.getItem('narabote-server-url') || '';
-        if (!API_BASE && window.location.origin && window.location.origin !== 'null' && window.location.origin !== 'file://') API_BASE = window.location.origin;
+        if (!API_BASE) API_BASE = DEFAULT_SERVER;
         if (API_BASE) API_BASE = API_BASE.replace(/\/$/, '');
         let API = API_BASE ? API_BASE + '/api/' : '/api/';
         const _json = r => r.json();
@@ -263,27 +264,46 @@
      * ========================================================== */
 
     async function init() {
-        /* ANDROID WEB: экран настройки сервера */
         if (window._isWebMode) {
             const saved = localStorage.getItem('narabote-server-url');
-            if (saved) {
+            const serverUrl = (saved || window._getServerUrl() || '').replace(/\/$/, '');
+            const currentOrigin = (window.location.origin || '').replace(/\/$/, '');
+            const alreadyOnServer = serverUrl && currentOrigin && serverUrl === currentOrigin;
+
+            if (serverUrl) {
+                window._setServerUrl(serverUrl);
                 try {
-                    const test = await fetch(saved.replace(/\/$/, '') + '/api/config', {credentials:'include'}).then(r=>r.json());
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 15000);
+                    const test = await fetch(serverUrl + '/api/config', {credentials:'include', signal:ctrl.signal}).then(r=>r.json());
+                    clearTimeout(timer);
                     if (test && test.success !== undefined) {
                         $('serverScreen').classList.remove('active');
                         $('authScreen').classList.add('active');
-                    } else { throw new Error('fail'); }
+                    } else {
+                        $('serverScreen').classList.add('active');
+                        $('authScreen').classList.remove('active');
+                    }
                 } catch (_) {
-                    window._setServerUrl(saved);
-                    window.location.href = saved.replace(/\/$/, '') + '/';
-                    return;
+                    if (alreadyOnServer) {
+                        $('serverScreen').classList.add('active');
+                        $('authScreen').classList.remove('active');
+                    } else {
+                        window.location.href = serverUrl + '/';
+                        return;
+                    }
                 }
-            } else if (window.location.protocol !== 'file:' && window.location.origin && window.location.origin !== 'null') {
+            } else if (window.location.protocol !== 'file:' && currentOrigin && currentOrigin !== 'null') {
+                window._setServerUrl(currentOrigin);
                 try {
-                    const test = await fetch('/api/config', {credentials:'include'}).then(r=>r.json());
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 15000);
+                    const test = await fetch('/api/config', {credentials:'include', signal:ctrl.signal}).then(r=>r.json());
+                    clearTimeout(timer);
                     if (test && test.success !== undefined) {
                         $('serverScreen').classList.remove('active');
                         $('authScreen').classList.add('active');
+                        localStorage.setItem('narabote-server-url', currentOrigin);
                     } else {
                         $('serverScreen').classList.add('active');
                         $('authScreen').classList.remove('active');
@@ -296,23 +316,27 @@
                 $('serverScreen').classList.add('active');
                 $('authScreen').classList.remove('active');
             }
-            $('serverUrl').value = saved || '';
+            $('serverUrl').value = serverUrl || '';
             $('serverConnectBtn').onclick = async () => {
                 const url = $('serverUrl').value.trim().replace(/\/$/, '');
                 if (!url) { $('serverStatus').style.display=''; $('serverStatus').textContent='Введите адрес'; $('serverStatus').style.color='#e74c3c'; return; }
                 $('serverStatus').style.display=''; $('serverStatus').textContent='Подключение...'; $('serverStatus').style.color='#f39c12';
                 try {
-                    const r = await fetch(url + '/api/config', {credentials:'include'}).then(r=>r.json());
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 15000);
+                    const r = await fetch(url + '/api/config', {credentials:'include', signal:ctrl.signal}).then(r2=>r2.json());
+                    clearTimeout(timer);
                     if (r && r.success !== undefined) {
                         window._setServerUrl(url);
-                        $('serverStatus').textContent='Подключено! Загрузка...'; $('serverStatus').style.color='#2ecc71';
                         localStorage.setItem('narabote-server-url', url);
-                        setTimeout(() => { window.location.href = url + '/'; }, 300);
-                    } else { throw new Error('bad response'); }
+                        $('serverScreen').classList.remove('active');
+                        $('authScreen').classList.add('active');
+                        initApp();
+                    } else {
+                        $('serverStatus').textContent='Сервер не отвечает корректно'; $('serverStatus').style.color='#e74c3c';
+                    }
                 } catch (e) {
-                    localStorage.setItem('narabote-server-url', url);
-                    window._setServerUrl(url);
-                    window.location.href = url + '/';
+                    $('serverStatus').textContent='Не удалось подключиться (сервер спит?)'; $('serverStatus').style.color='#e74c3c';
                 }
             };
             $('serverOfflineBtn').onclick = () => { $('serverScreen').classList.remove('active'); $('authScreen').classList.add('active'); initApp(); };
