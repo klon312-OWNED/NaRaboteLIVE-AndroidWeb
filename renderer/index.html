@@ -1,0 +1,465 @@
+<!--
+  Copyright (c) 2026 Антипин Андрей Александрович
+  All rights reserved. See LICENSE file.
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://*.loca.lt http://*.loca.lt;">
+<title>НаРаботе</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f3460">
+</head>
+<body>
+
+<!-- ======================== НАСТРОЙКА СЕРВЕРА (ANDROID WEB) ======================== -->
+<div id="serverScreen" class="screen">
+    <div class="auth-box" style="max-width:420px;">
+        <h1 class="auth-title">📅 НаРаботе <span style="font-size:0.5em;color:#e67e22;">ANDROID WEB</span></h1>
+        <p class="auth-sub">Подключение к серверу</p>
+        <div class="auth-field">
+            <label for="serverUrl">Адрес сервера:</label>
+            <input type="text" id="serverUrl" placeholder="http://192.168.1.10:3000" autocomplete="off" autofocus>
+        </div>
+        <p style="font-size:11px;color:#888;margin:6px 0;">Введите IP-адрес компьютера, на котором запущен сервер НаРаботеLIVE (команда: <code>npm run start:web</code>)</p>
+        <button id="serverConnectBtn" class="btn btn-primary" style="width:100%;">Подключиться</button>
+        <p id="serverStatus" style="font-size:12px;margin-top:8px;display:none;"></p>
+        <div style="margin-top:12px;border-top:1px solid #333;padding-top:10px;">
+            <button id="serverOfflineBtn" class="btn btn-outline btn-sm" style="width:100%;">Работать офлайн (демо)</button>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== АВТОРИЗАЦИЯ ======================== -->
+<div id="authScreen" class="screen">
+    <div class="auth-box">
+        <h1 class="auth-title">📅 НаРаботе</h1>
+        <p class="auth-sub">Учёт графиков, отпусков и рабочего времени</p>
+        <!-- Табы -->
+        <div class="auth-tabs">
+            <button class="auth-tab active" data-tab="login">Вход</button>
+            <button class="auth-tab" data-tab="register">Регистрация</button>
+            <button class="auth-tab" data-tab="admin">Администратор</button>
+        </div>
+        <!-- Вход сотрудника (логин + пароль) -->
+        <div id="tabLogin" class="auth-tab-content active">
+            <div class="auth-field">
+                <label for="loginUser">Логин:</label>
+                <input type="text" id="loginUser" placeholder="Ваш логин" autocomplete="off" autofocus>
+            </div>
+            <div class="auth-field">
+                <label for="loginPass">Пароль:</label>
+                <input type="password" id="loginPass" placeholder="••••••" autocomplete="off">
+            </div>
+            <label class="auth-remember" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#888;margin-bottom:8px;">
+                <input type="checkbox" id="rememberUser" checked> Запомнить логин
+            </label>
+            <button id="loginEmpBtn" class="btn btn-primary" style="width:100%">Войти</button>
+        </div>
+        <!-- Регистрация -->
+        <div id="tabRegister" class="auth-tab-content">
+            <div class="auth-field">
+                <label for="regLogin">Логин:</label>
+                <input type="text" id="regLogin" placeholder="Придумайте логин" autocomplete="off">
+            </div>
+            <div class="auth-field">
+                <label for="regPass">Пароль:</label>
+                <input type="password" id="regPass" placeholder="Минимум 3 символа" autocomplete="off">
+            </div>
+            <div class="auth-field">
+                <label for="regName">Отображаемое имя:</label>
+                <input type="text" id="regName" placeholder="Иванов И.И." autocomplete="off">
+            </div>
+            <div class="auth-field">
+                <label for="regTabNum">Табельный номер:</label>
+                <input type="text" id="regTabNum" placeholder="00228353" autocomplete="off">
+            </div>
+            <button id="registerBtn" class="btn btn-primary" style="width:100%">Зарегистрироваться</button>
+        </div>
+        <!-- Вход администратора -->
+        <div id="tabAdmin" class="auth-tab-content">
+            <div class="auth-field">
+                <label for="adminLogin">Логин:</label>
+                <input type="text" id="adminLogin" placeholder="admin" autocomplete="off">
+            </div>
+            <div class="auth-field">
+                <label for="adminPass">Пароль:</label>
+                <input type="password" id="adminPass" placeholder="••••••" autocomplete="off">
+            </div>
+            <button id="loginAdminBtn" class="btn btn-primary" style="width:100%">Войти как администратор</button>
+        </div>
+        <p id="authError" class="error-msg" style="display:none;"></p>
+    </div>
+</div>
+
+<!-- ======================== ОСНОВНОЙ ЭКРАН ======================== -->
+<div id="mainScreen" class="screen">
+    <header class="topbar">
+        <div class="topbar-left"><h2 class="app-title">📅 НаРаботе</h2></div>
+        <div class="topbar-center" id="empSelectorWrap" style="display:none;">
+            <label class="emp-sel-label">👤 Сотрудник:</label>
+            <select id="empSelector" class="emp-selector"></select>
+        </div>
+        <div class="topbar-right">
+            <span id="updateBadge" class="role-badge" style="display:none;background:#e67e22;color:#fff;cursor:pointer;" title="Доступно обновление">⬆ Update</span>
+            <span class="user-info" id="userInfo"></span>
+            <span class="role-badge" id="roleBadge"></span>
+            <button class="btn btn-sm btn-outline" id="helpBtn" title="Инструкция">❓</button>
+            <button class="btn btn-sm btn-outline" id="settingsBtn" title="Настройки">⚙</button>
+            <button class="btn btn-sm btn-outline" id="themeBtn" title="Сменить тему">🌓</button>
+            <button class="btn btn-sm btn-outline" id="logoutBtn">Выход</button>
+        </div>
+    </header>
+
+    <!-- ========== ПАНЕЛЬ НАСТРОЕК ========== -->
+    <div class="settings-bar" id="settingsBar">
+        <span class="settings-label">⚙ Настройки:</span>
+        <div class="sg"><label>Начало:</label><input class="si" type="time" id="defStart" value="09:00"></div>
+        <div class="sg"><label>Конец:</label><input class="si" type="time" id="defEnd" value="18:00"></div>
+        <div class="sg"><label>Обед(ч):</label><input class="si" type="number" id="defLunch" value="1" step="0.5" min="0" max="3"></div>
+        <div class="sg"><label>Норма(ч):</label><input class="si" type="number" id="defNorm" value="8" step="0.5" min="1" max="24"></div>
+        <div class="sg"><label>Ставка:</label><input class="si" type="number" id="defRate" value="1" step="0.05" min="0.1" max="2"></div>
+        <div class="sg"><label>ЗП/час:</label><input class="si" type="number" id="defHourlyWage" value="0" step="50" min="0"></div>
+        <div class="sg"><label>Перерыв:</label><input class="si" type="text" id="defBreak" value="F130" style="width:70px;"></div>
+        <div class="sg"><label>Шаблон:</label>
+            <select class="si" id="templateSelect" style="width:90px;">
+            </select>
+        </div>
+        <button class="btn btn-outline btn-xs" id="applyTemplateBtn" title="Применить шаблон на текущий месяц">Применить</button>
+        <button class="btn btn-outline btn-xs" id="editTemplateBtn" title="Редактировать шаблоны">✏️</button>
+    </div>
+
+    <div class="container">
+        <!-- ========== ЛЕВАЯ КОЛОНКА ========== -->
+        <div class="col-left">
+            <!-- Календарь -->
+            <div class="card app-block" data-block="calendar">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-header">
+                    <button class="nav-btn" id="prevMonth">◀</button>
+                    <span class="month-title" id="monthTitle">Апрель 2026</span>
+                    <button class="nav-btn" id="nextMonth">▶</button>
+                    <button class="btn btn-outline btn-xs" id="todayBtn" style="margin-left:8px">Сегодня</button>
+                </div>
+                <!-- Выбор режима -->
+                <div class="mode-bar">
+                    <span class="mode-label">Режим:</span>
+                    <select class="mode-select" id="modeSelect">
+                        <option value="none">👁 Просмотр</option>
+                        <option value="work">🔨 Работа</option>
+                        <option value="vacation">🏖 Отпуск</option>
+                        <option value="trip">✈ Командировка</option>
+                        <option value="book" id="modeBookOpt" style="display:none">📋 Блокировка</option>
+                    </select>
+                </div>
+                <div class="weekdays">
+                    <div>Пн</div><div>Вт</div><div>Ср</div><div>Чт</div><div>Пт</div><div>Сб</div><div>Вс</div>
+                </div>
+                <div class="cal-grid" id="calGrid"></div>
+                <!-- Полоска дня (таймлайн) -->
+                <div class="day-timeline" id="dayTimeline" style="display:none;">
+                    <div class="day-timeline-label" id="dayTimelineLabel"></div>
+                    <div class="day-timeline-bar" id="dayTimelineBar"></div>
+                </div>
+                <div class="legend">
+                    <span class="leg-item"><span class="leg-dot dot-free"></span> Свободно</span>
+                    <span class="leg-item"><span class="leg-dot dot-partial"></span> Частично</span>
+                    <span class="leg-item"><span class="leg-dot dot-full"></span> Занято</span>
+                    <span class="leg-item"><span class="leg-dot dot-mine"></span> Моя бронь</span>
+                    <span class="leg-item"><span class="leg-dot dot-work"></span> Рабочий</span>
+                    <span class="leg-item"><span class="leg-dot dot-vac"></span> Отпуск</span>
+                    <span class="leg-item"><span class="leg-dot dot-trip"></span> Команд.</span>
+                    <span class="leg-item"><span class="leg-dot dot-locked"></span> Блокировка</span>
+                    <span class="leg-item"><span class="leg-dot dot-hol"></span> Праздник</span>
+                    <span class="leg-item"><span class="leg-dot dot-pre"></span> Предпразд.</span>
+                </div>
+            </div>
+            <!-- Панель дат -->
+            <div class="card app-block" data-block="my-days" id="datesPanel">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title-row">
+                    <span class="card-title" style="border:0;margin:0;padding:0;">📋 Мои дни</span>
+                    <span class="cnt-badge" id="dayCounts">0 раб. / 0 отп.</span>
+                    <button class="btn btn-outline btn-xs" id="copyMonthBtn" title="Скопировать рабочие дни с прошлого месяца">📋↩</button>
+                </div>
+                <div class="scroll-area" id="datesContent">
+                    <p class="hint">Кликните на дату в календаре</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== ПРАВАЯ КОЛОНКА ========== -->
+        <div class="col-right">
+            <!-- Детали даты + бронирование -->
+            <div class="card app-block" data-block="day-details" id="dateDetails">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">📌 Детали даты</div>
+                <div id="dateContent" class="detail-content">
+                    <p class="hint">Кликните на дату в календаре</p>
+                </div>
+            </div>
+
+            <!-- Заметки к дате (чат) -->
+            <div class="card app-block" data-block="notes" id="notesCard" style="display:none;">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="notes-card-header">
+                    <span class="card-title" style="margin:0;padding:0;border:0;">💬 Заметки</span>
+                    <input type="date" id="notesDatePicker" class="si notes-date-picker" title="Выбрать дату для заметок">
+                    <button class="btn btn-outline btn-xs" id="notesSearchBtn" title="Поиск по всем заметкам">🔍</button>
+                    <button class="btn btn-outline btn-xs" id="notesOpenBtn" title="Открыть в большом окне">⛶</button>
+                </div>
+                <div class="notes-search-row" id="notesSearchRow" style="display:none;">
+                    <input type="text" id="notesSearchInput" class="notes-input" placeholder="Поиск по заметкам..." autocomplete="off">
+                    <button class="btn btn-outline btn-xs" id="notesSearchCloseBtn" title="Закрыть поиск">✕</button>
+                </div>
+                <div class="notes-chat" id="notesList"><p class="hint">Выберите дату</p></div>
+                <div class="notes-input-row" id="notesInputRow" style="display:none;">
+                    <input type="text" id="notesInput" class="notes-input" placeholder="Написать заметку..." maxlength="500" autocomplete="off">
+                    <label class="btn btn-outline btn-sm notes-attach-btn" title="Прикрепить файл">📎<input type="file" id="notesFileInput" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar" style="display:none;"></label>
+                    <button class="btn btn-primary btn-sm" id="notesSendBtn">➤</button>
+                </div>
+                <div class="notes-pending-files" id="notesPendingFiles" style="display:none;"></div>
+            </div>
+
+            <!-- Задачи по времени -->
+            <div class="card app-block" data-block="tasks" id="tasksCard">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="tasks-card-header">
+                    <span class="card-title" style="margin:0;padding:0;border:0;">📌 Задачи</span>
+                    <select id="taskEmpFilter" class="si" style="width:auto;min-width:100px;font-size:11px;" title="Фильтр по сотруднику">
+                        <option value="">Все</option>
+                    </select>
+                    <button class="btn btn-primary btn-xs" id="addTaskBtn" title="Добавить задачу">+ Задача</button>
+                    <button class="btn btn-outline btn-xs" id="addRecurringBtn" title="Повторяющаяся задача" style="display:none;">🔄 Повтор</button>
+                </div>
+                <div class="tasks-list" id="tasksList">
+                    <p class="hint">Выберите дату для задач</p>
+                </div>
+                <!-- Форма добавления задачи -->
+                <div class="task-form" id="taskForm" style="display:none;">
+                    <div class="task-form-row">
+                        <input type="time" id="taskTime" class="si" value="09:00" title="Время начала">
+                        <input type="number" id="taskDuration" class="si" value="30" min="5" max="480" step="5" style="width:55px" title="Длительность (мин)">
+                        <span class="task-form-label">мин</span>
+                    </div>
+                    <div class="task-form-row">
+                        <input type="text" id="taskTitle" class="task-title-input" placeholder="Название задачи" maxlength="100" autocomplete="off">
+                    </div>
+                    <div class="task-form-row">
+                        <label class="task-form-label">Исполнитель:</label>
+                        <select id="taskAssignee" class="si" style="flex:1;min-width:0;font-size:12px;"></select>
+                    </div>
+                    <div class="task-form-row">
+                        <textarea id="taskDesc" class="task-desc-input" placeholder="Описание (необязательно)" maxlength="500" rows="2"></textarea>
+                    </div>
+                    <div class="task-form-btns">
+                        <button class="btn btn-primary btn-sm" id="taskSaveBtn">Сохранить</button>
+                        <button class="btn btn-outline btn-sm" id="taskCancelBtn">Отмена</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Пересечения -->
+            <div class="card app-block" data-block="intersections">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">🔀 Пересечения</div>
+                <div id="intersections" class="inters-content">
+                    <p class="hint">нет общих дат</p>
+                </div>
+            </div>
+
+            <!-- Статистика -->
+            <div class="card app-block" data-block="stats">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">⏱ Статистика</div>
+                <div id="statsContent"></div>
+            </div>
+
+            <!-- Зарплата (руководитель / админ) -->
+            <div class="card app-block" data-block="salary" id="salaryCard" style="display:none;">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">💰 Зарплата</div>
+                <div id="salaryContent" class="salary-content">
+                    <p class="hint">Загрузка...</p>
+                </div>
+            </div>
+
+            <!-- Управление (руководитель / админ) -->
+            <div class="card app-block" data-block="management" id="managerPanel" style="display:none;">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">🔧 Управление (рук.)</div>
+                <div id="managerContent" class="mgr-content">
+                    <p class="hint">Выберите дату для управления</p>
+                </div>
+            </div>
+
+            <!-- Администрирование пользователей (только админ) -->
+            <div class="card app-block" data-block="admin" id="adminPanel" style="display:none;">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">🛡 Администрирование</div>
+                <div id="adminContent">
+                    <!-- Список пользователей (заполняется из app.js) -->
+                    <div id="adminUserList"></div>
+                    <!-- Массовое снятие блокировок -->
+                    <div class="admin-pass-section">
+                        <div class="vac-title">🔓 Снять блокировки за период</div>
+                        <div class="admin-pass-row">
+                            <input type="date" id="bulkUnblockFrom" class="si" style="width:130px;" title="С даты">
+                            <input type="date" id="bulkUnblockTo" class="si" style="width:130px;" title="По дату">
+                            <button class="btn btn-danger btn-xs" id="bulkUnblockBtn">Снять все</button>
+                        </div>
+                    </div>
+                    <!-- Смена пароля админа -->
+                    <div class="admin-pass-section">
+                        <div class="vac-title">🔑 Сменить пароль администратора</div>
+                        <div class="admin-pass-row">
+                            <input type="password" id="oldAdminPass" class="si" placeholder="Текущий" style="width:110px;">
+                            <input type="password" id="newAdminPass" class="si" placeholder="Новый" style="width:110px;">
+                            <button class="btn btn-primary btn-xs" id="changePassBtn">Сменить</button>
+                        </div>
+                    </div>
+                    <!-- Журнал действий -->
+                    <div class="admin-pass-section">
+                        <div class="vac-title" style="display:flex;align-items:center;justify-content:space-between;">
+                            <span>📋 Журнал действий</span>
+                            <button class="btn btn-outline btn-xs" id="auditRefreshBtn" title="Обновить журнал">🔄 Обновить</button>
+                        </div>
+                        <div class="audit-scroll" id="auditContent">
+                            <p class="hint">Загрузка...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Экспорт -->
+            <div class="btn-bar app-block" data-block="export" id="exportBar">
+                <button class="btn btn-gold btn-sm" id="expExcelBtn">📊 Excel (.xlsx)</button>
+                <button class="btn btn-blue btn-sm" id="expR7Btn">📊 Р7 (.ods)</button>
+                <button class="btn btn-outline btn-sm" id="openFolderBtn">📂 Папка</button>
+                <button class="btn btn-outline btn-sm" id="printBtn" title="Печать отчёта">🖨 Печать</button>
+                <button class="btn btn-outline btn-sm" id="importBtn" title="Импорт расписания" style="display:none;">📥 Импорт</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ======================== МОДАЛКА ======================== -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box">
+        <div class="modal-title" id="modalTitle">Подтверждение</div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" id="modalConfirm">Подтвердить</button>
+            <button class="btn btn-outline" id="modalCancel">Отмена</button>
+        </div>
+    </div>
+</div>
+
+<!-- Тосты -->
+<div id="toastContainer" class="toast-container"></div>
+
+<!-- Инструкция (onboarding tour) -->
+<div class="tour-overlay" id="tourOverlay">
+    <div class="tour-backdrop" id="tourBackdrop"></div>
+    <div class="tour-highlight" id="tourHighlight"></div>
+    <div class="tour-tooltip" id="tourTooltip">
+        <div class="tour-tooltip-title" id="tourTitle"></div>
+        <div class="tour-tooltip-text" id="tourText"></div>
+        <div class="tour-tooltip-footer">
+            <div><span class="tour-step-num" id="tourStepNum"></span><div class="tour-dots" id="tourDots"></div></div>
+            <div class="tour-btns">
+                <button class="btn btn-outline btn-sm" id="tourSkip">Пропустить</button>
+                <button class="btn btn-outline btn-sm" id="tourPrev">◀ Назад</button>
+                <button class="btn btn-primary btn-sm" id="tourNext">Далее ▶</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ОКНО ЗАМЕТОК -->
+<div class="notes-overlay" id="notesOverlay">
+    <div class="notes-window">
+        <div class="notes-window-header">
+            <span class="notes-window-title">💬 Заметки</span>
+            <input type="date" id="notesModalDate" class="si" style="min-width:150px;" title="Выбрать дату">
+            <button class="btn btn-outline btn-sm" id="notesOverlayClose" style="margin-left:auto;">✕ Закрыть</button>
+        </div>
+        <div class="notes-window-body" id="notesModalList">
+            <p class="hint">Выберите дату</p>
+        </div>
+        <div class="notes-input-row notes-window-footer" id="notesModalFooter" style="display:none;">
+            <input type="text" id="notesModalInput" class="notes-input" placeholder="Написать заметку к выбранной дате..." maxlength="500" autocomplete="off">
+            <label class="btn btn-outline btn-sm notes-attach-btn" title="Прикрепить файл">📎<input type="file" id="notesModalFileInput" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar" style="display:none;"></label>
+            <button class="btn btn-primary btn-sm" id="notesModalSendBtn">➤</button>
+        </div>
+        <div class="notes-pending-files" id="notesModalPendingFiles" style="display:none;"></div>
+    </div>
+</div>
+
+<!-- РЕДАКТОР ШАБЛОНОВ -->
+<div class="modal-overlay" id="templateEditorOverlay">
+    <div class="modal-box" style="width:700px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;">
+        <div class="modal-title">✏️ Редактор шаблонов</div>
+        <div class="modal-body" style="flex:1;overflow-y:auto;" id="templateEditorBody">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" id="templateEditorClose">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<!-- НАСТРОЙКИ ОТОБРАЖЕНИЯ -->
+<div class="modal-overlay" id="settingsModalOverlay">
+    <div class="modal-box" style="width:550px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;">
+        <div class="modal-title">⚙ Настройки</div>
+        <div class="modal-body" style="flex:1;overflow-y:auto;" id="settingsModalBody">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" id="settingsModalCancel">Отмена</button>
+            <button class="btn btn-primary" id="settingsModalSave">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛКА ПОВТОРЯЮЩЕЙСЯ ЗАДАЧИ -->
+<div class="modal-overlay" id="recurringOverlay">
+    <div class="modal-box" style="width:500px;max-width:95vw;">
+        <div class="modal-title">🔄 Повторяющаяся задача</div>
+        <div class="modal-body">
+            <div class="auth-field"><label>Название:</label><input type="text" id="recurTitle" class="si" placeholder="Название задачи"></div>
+            <div class="auth-field"><label>Описание:</label><input type="text" id="recurDesc" class="si" placeholder="Описание (необязательно)"></div>
+            <div class="auth-field"><label>Время:</label><input type="time" id="recurTime" class="si" value="09:00"></div>
+            <div class="auth-field"><label>Длительность (мин):</label><input type="number" id="recurDuration" class="si" value="30" min="5" max="480" step="5"></div>
+            <div class="auth-field"><label>Исполнитель:</label><select id="recurAssignee" class="si"></select></div>
+            <div class="auth-field"><label>Дни недели:</label>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="1"> Пн</label>
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="2"> Вт</label>
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="3"> Ср</label>
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="4"> Чт</label>
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="5"> Пт</label>
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="6"> Сб</label>
+                    <label style="font-size:12px;"><input type="checkbox" class="recur-day" value="0"> Вс</label>
+                </div>
+            </div>
+            <div class="auth-field"><label>С:</label><input type="date" id="recurStart" class="si"></div>
+            <div class="auth-field"><label>По:</label><input type="date" id="recurEnd" class="si"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" id="recurCancelBtn">Отмена</button>
+            <button class="btn btn-primary" id="recurSaveBtn">Создать</button>
+        </div>
+    </div>
+</div>
+
+<!-- СКРЫТЫЙ INPUT ДЛЯ ИМПОРТА -->
+<input type="file" id="importFileInput" accept=".xlsx,.ods" style="display:none;">
+
+<script src="app.js"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
+</body>
+</html>

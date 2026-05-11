@@ -1,0 +1,25 @@
+{
+  "name": "narabote-live-android-web",
+  "version": "1.0.0.1",
+  "description": "НаРаботеLIVE ANDROID WEB — мобильная серверная версия для Android и браузера",
+  "author": {
+    "name": "Антипин Андрей Александрович",
+    "email": "Skilleforsken@gmail.com"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:tunnel": "node server.js --tunnel"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.1",
+    "multer": "^2.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "optionalDependencies": {
+    "localtunnel": "^2.0.2"
+  }
+}
