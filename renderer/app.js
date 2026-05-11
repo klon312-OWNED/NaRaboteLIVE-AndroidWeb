@@ -1533,7 +1533,6 @@
                 html += '<div class="book-btn-wrap"><p class="hint">⛔ Все слоты заняты</p></div>';
             }
         } else {
-            /* Работник: никаких кнопок бронирования, только статус */
             if (locked) {
                 html += '<div style="font-size:12px;color:var(--danger);margin:6px 0">🔒 Дата заблокирована руководителем — отпуск недоступен</div>';
             } else if (realEmps.length > 0) {
@@ -1541,6 +1540,26 @@
             } else {
                 html += '<div class="detail-status ' + statusCls + '">' + statusLabel + '</div>';
             }
+            const myWork = workData.some(w => w.date === dateStr && w.emp === employeeId);
+            const myVac = vacData.some(v => v.date === dateStr && v.emp === employeeId);
+            const myTrip = tripData.some(t => t.date === dateStr && t.emp === employeeId);
+            html += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">';
+            if (myWork) {
+                html += '<button class="btn btn-danger btn-sm" id="remWorkBtn">🔨 Убрать рабочий день</button>';
+            } else if (!locked && !wknd && !hol) {
+                html += '<button class="btn btn-success btn-sm" id="addWorkBtn">🔨 Рабочий день</button>';
+            }
+            if (myVac) {
+                html += '<button class="btn btn-danger btn-sm" id="remVacBtn">🏖 Убрать отпуск</button>';
+            } else if (!locked && !realEmps.length) {
+                html += '<button class="btn btn-primary btn-sm" id="addVacBtn">🏖 Отпуск</button>';
+            }
+            if (myTrip) {
+                html += '<button class="btn btn-danger btn-sm" id="remTripBtn">✈ Убрать командировку</button>';
+            } else {
+                html += '<button class="btn btn-warning btn-sm" id="addTripBtn">✈ Командировка</button>';
+            }
+            html += '</div>';
         }
 
         $('dateContent').innerHTML = html;
@@ -1556,6 +1575,43 @@
         $('dateContent').querySelectorAll('[data-cancel-d]').forEach(btn => {
             btn.onclick = () => confirmCancel(btn.dataset.cancelD, btn.dataset.cancelE);
         });
+        const addWorkBtn = $('addWorkBtn');
+        if (addWorkBtn) addWorkBtn.onclick = async () => {
+            const d = getDefaults();
+            const res = await window.api.setWork(employeeId, dateStr, d.start, d.end, d.lunch, d.rate, d.hourlyWage, 0, '');
+            if (res.success) { toast('🔨 Рабочий день добавлен', 'success'); await loadAll(); }
+            else toast(res.message, 'error');
+        };
+        const remWorkBtn = $('remWorkBtn');
+        if (remWorkBtn) remWorkBtn.onclick = async () => {
+            const res = await window.api.removeWork(employeeId, dateStr);
+            if (res.success) { toast('Рабочий день убран', 'success'); await loadAll(); }
+            else toast(res.message, 'error');
+        };
+        const addVacBtn = $('addVacBtn');
+        if (addVacBtn) addVacBtn.onclick = async () => {
+            const res = await window.api.addVacation(employeeId, dateStr);
+            if (res.success) { toast('⏳ Запрос на отпуск отправлен', 'info'); await loadAll(); }
+            else toast(res.message, 'error');
+        };
+        const remVacBtn = $('remVacBtn');
+        if (remVacBtn) remVacBtn.onclick = async () => {
+            const res = await window.api.removeVacation(employeeId, dateStr);
+            if (res.success) { toast('Отпуск убран', 'success'); await loadAll(); }
+            else toast(res.message, 'error');
+        };
+        const addTripBtn = $('addTripBtn');
+        if (addTripBtn) addTripBtn.onclick = async () => {
+            const res = await window.api.addTrip(employeeId, dateStr);
+            if (res.success) { toast('✈ Командировка добавлена', 'success'); await loadAll(); }
+            else toast(res.message, 'error');
+        };
+        const remTripBtn = $('remTripBtn');
+        if (remTripBtn) remTripBtn.onclick = async () => {
+            const res = await window.api.removeTrip(employeeId, dateStr);
+            if (res.success) { toast('Командировка убрана', 'success'); await loadAll(); }
+            else toast(res.message, 'error');
+        };
     }
 
      /* ==========================================================
