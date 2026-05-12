@@ -28,6 +28,9 @@ const UserManager = require('./lib/users');
 const DataCrypto = require('./lib/crypto');
 const TaskManager = require('./lib/tasks');
 const TemplateManager = require('./lib/templates');
+const mongo = require('./lib/db');
+
+const USE_MONGO = !!process.env.MONGODB_URI;
 
 /* --- Базовый каталог для данных --- */
 const DATA_ROOT = process.env.NARABOTE_DATA_DIR ||
@@ -48,7 +51,7 @@ const ATTACH_DIR = path.join(DATA_ROOT, 'data', 'attachments');
 if (!fs.existsSync(ATTACH_DIR)) fs.mkdirSync(ATTACH_DIR, { recursive: true });
 
 const upload = multer({
-    storage: multer.diskStorage({
+    storage: USE_MONGO ? multer.memoryStorage() : multer.diskStorage({
         destination: (req, file, cb) => cb(null, ATTACH_DIR),
         filename: (req, file, cb) => {
             const ext = path.extname(file.originalname).toLowerCase();
@@ -196,6 +199,7 @@ function saveNotesFile(data) {
         const tmp = NOTES_PATH + '.tmp';
         fs.writeFileSync(tmp, dataCrypto.encrypt(data), 'utf-8');
         fs.renameSync(tmp, NOTES_PATH);
+        persistToMongo('notes');
     } catch (e) { logError('Notes write: ' + e.message); }
 }
 
@@ -222,6 +226,7 @@ function auditLog(action, user, details) {
         const tmpAudit = AUDIT_PATH + '.tmp';
         fs.writeFileSync(tmpAudit, dataCrypto.encrypt(log), 'utf-8');
         fs.renameSync(tmpAudit, AUDIT_PATH);
+        persistToMongo('audit');
     } catch (e) { logError('Audit: ' + e.message); }
 }
 
@@ -235,10 +240,15 @@ function empWork(emp) {
 }
 
 /* --- Инициализация модулей --- */
-function initModules() {
+async function initModules() {
     try {
         const dataDir = path.join(DATA_ROOT, 'data');
         if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+        if (USE_MONGO) {
+            await mongo.connect(process.env.MONGODB_URI);
+            await loadFromMongo();
+        }
 
         schedule = new ScheduleManager(schedulePath, config.maxPerDate || 2);
         if (!fs.existsSync(schedulePath)) {
@@ -246,12 +256,89 @@ function initModules() {
             console.log('Создан файл:', schedulePath);
         }
         users = new UserManager(usersPath);
-        dataCrypto = new DataCrypto(dataDir);
-        dataCrypto.enable();
+        if (USE_MONGO) {
+            dataCrypto = new DataCrypto(dataDir);
+        } else {
+            dataCrypto = new DataCrypto(dataDir);
+            dataCrypto.enable();
+        }
         tasks = new TaskManager(TASKS_PATH, dataCrypto);
         templates = new TemplateManager(DATA_ROOT);
         templates._ensure();
-    } catch (e) { logError('initModules: ' + e.message); }
+    } catch (e) { logError('initModules: ' + e.message); console.error('initModules error:', e.message); }
+}
+
+/* --- MongoDB: загрузка данных при старте --- */
+async function loadFromMongo() {
+    const db = mongo.getDb();
+    const col = db.collection('appdata');
+
+    const docs = await col.find({ _id: { $ne: '__meta__' } }).toArray();
+    for (const doc of docs) {
+        try {
+            const key = doc._id;
+            if (key === 'users') {
+                fs.writeFileSync(usersPath, JSON.stringify(doc.data, null, 2), 'utf-8');
+            } else if (key === 'schedule') {
+                if (doc.data && doc.data.buffer) {
+                    fs.writeFileSync(schedulePath, doc.data.buffer);
+                } else if (typeof doc.data === 'string') {
+                    fs.writeFileSync(schedulePath, Buffer.from(doc.data, 'base64'));
+                }
+            } else if (key === 'tasks') {
+                fs.writeFileSync(TASKS_PATH, JSON.stringify(doc.data, null, 2), 'utf-8');
+            } else if (key === 'notes') {
+                fs.writeFileSync(NOTES_PATH, JSON.stringify(doc.data), 'utf-8');
+            } else if (key === 'audit') {
+                fs.writeFileSync(AUDIT_PATH, JSON.stringify(doc.data), 'utf-8');
+            } else if (key === 'holidays') {
+                fs.writeFileSync(HOLIDAYS_PATH, JSON.stringify(doc.data, null, 2), 'utf-8');
+            } else if (key === 'templates') {
+                const tmplPath = path.join(DATA_ROOT, 'data', 'templates.json');
+                fs.writeFileSync(tmplPath, JSON.stringify(doc.data, null, 2), 'utf-8');
+            }
+        } catch (e) { logError('loadFromMongo ' + doc._id + ': ' + e.message); }
+    }
+    console.log('  MongoDB:     Данные загружены из БД');
+}
+
+/* --- MongoDB: сохранение данных --- */
+function persistToMongo(key) {
+    if (!USE_MONGO) return;
+    const db = mongo.getDb();
+    const col = db.collection('appdata');
+    try {
+        if (key === 'users') {
+            const data = JSON.parse(fs.readFileSync(usersPath, 'utf-8'));
+            col.replaceOne({ _id: 'users' }, { _id: 'users', data }, { upsert: true }).catch(e => logError('persist users: ' + e.message));
+        } else if (key === 'schedule') {
+            const data = fs.readFileSync(schedulePath);
+            col.replaceOne({ _id: 'schedule' }, { _id: 'schedule', data: new require('mongodb').Binary(data) }, { upsert: true }).catch(e => logError('persist schedule: ' + e.message));
+        } else if (key === 'tasks') {
+            const raw = fs.readFileSync(TASKS_PATH, 'utf-8');
+            const data = dataCrypto.decrypt(raw) || [];
+            col.replaceOne({ _id: 'tasks' }, { _id: 'tasks', data }, { upsert: true }).catch(e => logError('persist tasks: ' + e.message));
+        } else if (key === 'notes') {
+            const raw = fs.readFileSync(NOTES_PATH, 'utf-8');
+            const data = dataCrypto.decrypt(raw) || {};
+            col.replaceOne({ _id: 'notes' }, { _id: 'notes', data }, { upsert: true }).catch(e => logError('persist notes: ' + e.message));
+        } else if (key === 'audit') {
+            const raw = fs.readFileSync(AUDIT_PATH, 'utf-8');
+            const data = dataCrypto.decrypt(raw) || [];
+            col.replaceOne({ _id: 'audit' }, { _id: 'audit', data }, { upsert: true }).catch(e => logError('persist audit: ' + e.message));
+        } else if (key === 'holidays') {
+            const data = JSON.parse(fs.readFileSync(HOLIDAYS_PATH, 'utf-8'));
+            col.replaceOne({ _id: 'holidays' }, { _id: 'holidays', data }, { upsert: true }).catch(e => logError('persist holidays: ' + e.message));
+        } else if (key === 'templates') {
+            const tmplPath = path.join(DATA_ROOT, 'data', 'templates.json');
+            const data = JSON.parse(fs.readFileSync(tmplPath, 'utf-8'));
+            col.replaceOne({ _id: 'templates' }, { _id: 'templates', data }, { upsert: true }).catch(e => logError('persist templates: ' + e.message));
+        }
+    } catch (e) { logError('persistToMongo ' + key + ': ' + e.message); }
+}
+
+function persistAll() {
+    ['users', 'schedule', 'tasks', 'notes', 'audit', 'holidays', 'templates'].forEach(persistToMongo);
 }
 
 /* ============================================================
@@ -332,6 +419,39 @@ app.get('*', (req, res, next) => {
 
 const api = express.Router();
 app.use('/api', api);
+
+/* --- Авто-персистенс в MongoDB после POST-запросов --- */
+const PERSIST_MAP = {
+    'admin-login': ['users'], 'user-login': ['users'], 'register': ['users'],
+    'logout': [], 'set-role': ['users'], 'rename-user': ['users'], 'delete-user': ['users'],
+    'reset-password': ['users'], 'change-admin-password': ['users'], 'set-user-color': ['users'],
+    'lock-date': ['schedule'], 'unlock-date': ['schedule'], 'book-date': ['schedule'],
+    'cancel-booking': ['schedule'], 'cancel-bookings-range': ['schedule'],
+    'set-work': ['schedule'], 'remove-work': ['schedule'],
+    'add-vacation': ['schedule'], 'remove-vacation': ['schedule'],
+    'approve-vacation': ['schedule'], 'reject-vacation': ['schedule'],
+    'add-trip': ['schedule'], 'remove-trip': ['schedule'],
+    'copy-month-work': ['schedule'], 'apply-template': ['schedule', 'templates'],
+    'save-template': ['templates'], 'delete-template': ['templates'],
+    'set-notes-perm': ['users'], 'add-note': ['notes'], 'delete-note': ['notes'], 'edit-note': ['notes'],
+    'upload-attachment': [], 'add-task': ['tasks'], 'update-task': ['tasks'],
+    'remove-task': ['tasks'], 'complete-task': ['tasks'], 'cancel-task': ['tasks'],
+    'add-recurring-task': ['tasks'], 'set-emp-defaults': ['users'], 'import-schedule': ['schedule']
+};
+app.use('/api', (req, res, next) => {
+    if (req.method === 'POST' && USE_MONGO) {
+        const origEnd = res.end.bind(res);
+        const keys = PERSIST_MAP[req.path.replace(/^\//, '')];
+        res.end = function (...args) {
+            if (keys && keys.length) {
+                const unique = [...new Set(keys)];
+                setImmediate(() => unique.forEach(k => persistToMongo(k)));
+            }
+            origEnd(...args);
+        };
+    }
+    next();
+});
 
 /* --- Авторизация --- */
 
@@ -1025,30 +1145,60 @@ api.post('/set-notes-perm', (req, res) => {
     res.json(r);
 });
 
-api.post('/upload-attachment', upload.single('file'), (req, res) => {
+api.post('/upload-attachment', upload.single('file'), async (req, res) => {
     const s = getSession(req);
     if (!s || !canUseNotes(s)) return res.status(403).json({ success: false, message: 'Нет прав' });
     if (!req.file) return res.json({ success: false, message: 'Файл не получен' });
     if (!ALLOWED_MIME.includes(req.file.mimetype)) {
-        fs.unlinkSync(req.file.path);
+        if (req.file.path) try { fs.unlinkSync(req.file.path); } catch (_) {}
         return res.json({ success: false, message: 'Неподдерживаемый тип файла' });
     }
-    const info = {
-        id: path.basename(req.file.path),
-        name: req.file.originalname,
-        type: req.file.mimetype,
-        size: req.file.size
-    };
+    let info;
+    if (USE_MONGO && req.file.buffer) {
+        const fileId = Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        const id = fileId + ext;
+        try {
+            const bucket = mongo.gridFs();
+            await new Promise((resolve, reject) => {
+                const ws = bucket.openUploadStream(id, { metadata: { originalname: req.file.originalname, mimetype: req.file.mimetype } });
+                ws.end(req.file.buffer);
+                ws.on('finish', resolve);
+                ws.on('error', reject);
+            });
+        } catch (e) { return res.json({ success: false, message: 'Ошибка загрузки файла' }); }
+        info = { id, name: req.file.originalname, type: req.file.mimetype, size: req.file.size };
+    } else {
+        info = {
+            id: path.basename(req.file.path),
+            name: req.file.originalname,
+            type: req.file.mimetype,
+            size: req.file.size
+        };
+    }
     auditLog('upload-attachment', s.empId || 'admin', info.name + ' (' + info.size + ')');
     res.json({ success: true, attachment: info });
 });
 
-api.get('/file/:id', (req, res) => {
+api.get('/file/:id', async (req, res) => {
     const auth = requireAuth(req);
     if (auth) return res.status(401).json(auth);
-    const filePath = path.join(ATTACH_DIR, req.params.id);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'Файл не найден' });
-    res.sendFile(filePath);
+    const fileId = req.params.id;
+    if (USE_MONGO) {
+        try {
+            const bucket = mongo.gridFs();
+            const files = await bucket.find({ filename: fileId }).toArray();
+            if (!files.length) return res.status(404).json({ success: false, message: 'Файл не найден' });
+            const meta = files[0].metadata || {};
+            if (meta.mimetype) res.type(meta.mimetype);
+            if (meta.originalname) res.setHeader('Content-Disposition', 'inline; filename="' + meta.originalname + '"');
+            bucket.openDownloadStreamByName(fileId).pipe(res);
+        } catch (e) { res.status(404).json({ success: false, message: 'Файл не найден' }); }
+    } else {
+        const filePath = path.join(ATTACH_DIR, fileId);
+        if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'Файл не найден' });
+        res.sendFile(filePath);
+    }
 });
 
 api.get('/notes-index', (req, res) => {
@@ -1346,7 +1496,7 @@ api.post('/add-recurring-task', (req, res) => {
  *  Запуск сервера
  * ============================================================ */
 
-initModules();
+initModules().then(() => {
 
 const PORT = config.port || process.env.PORT || 3000;
 
@@ -1434,3 +1584,5 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 module.exports = { app, server };
+
+}).catch(e => { console.error('initModules failed:', e.message); process.exit(1); });
