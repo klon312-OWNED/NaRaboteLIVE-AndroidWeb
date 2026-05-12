@@ -279,6 +279,33 @@
                 <div id="statsContent"></div>
             </div>
 
+            <!-- Дашборд -->
+            <div class="card app-block" data-block="dashboard" id="dashboardCard">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">📊 Дашборд</div>
+                <div id="dashboardContent">
+                    <div class="dash-summary" id="dashSummary"></div>
+                    <div class="dash-charts">
+                        <div class="dash-chart-wrap"><div class="dash-chart-title">Часы по месяцам</div><canvas id="dashHoursChart" width="300" height="160"></canvas></div>
+                        <div class="dash-chart-wrap"><div class="dash-chart-title">Баланс отпусков</div><canvas id="dashVacChart" width="300" height="160"></canvas></div>
+                        <div class="dash-chart-wrap"><div class="dash-chart-title">Переработки</div><canvas id="dashOvertimeChart" width="300" height="160"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Чат команды -->
+            <div class="card app-block" data-block="teamchat" id="teamChatCard">
+                <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>
+                <div class="card-title">💬 Чат команды</div>
+                <div class="team-chat-wrap" id="teamChatWrap">
+                    <div class="team-chat-messages" id="teamChatMessages"><p class="hint">Загрузка...</p></div>
+                    <div class="team-chat-input-row">
+                        <input type="text" id="teamChatInput" class="notes-input" placeholder="Написать в чат..." maxlength="500" autocomplete="off">
+                        <button class="btn btn-primary btn-sm" id="teamChatSendBtn">➤</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Зарплата (руководитель / админ) -->
             <div class="card app-block" data-block="salary" id="salaryCard" style="display:none;">
                 <div class="block-drag-handle" draggable="true" title="Перетащить">⋮⋮</div>

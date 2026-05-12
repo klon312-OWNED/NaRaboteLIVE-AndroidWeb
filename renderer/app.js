@@ -25,9 +25,8 @@
      * ========================================================== */
 
     if (!window.api) {
-        const DEFAULT_SERVER = 'https://narabote-live.onrender.com';
         let API_BASE = localStorage.getItem('narabote-server-url') || '';
-        if (!API_BASE) API_BASE = DEFAULT_SERVER;
+        if (!API_BASE && window.location.origin && window.location.origin !== 'null' && window.location.origin !== 'file://') API_BASE = window.location.origin;
         if (API_BASE) API_BASE = API_BASE.replace(/\/$/, '');
         let API = API_BASE ? API_BASE + '/api/' : '/api/';
         const _json = r => r.json();
@@ -264,46 +263,27 @@
      * ========================================================== */
 
     async function init() {
+        /* ANDROID WEB: экран настройки сервера */
         if (window._isWebMode) {
             const saved = localStorage.getItem('narabote-server-url');
-            const serverUrl = (saved || window._getServerUrl() || '').replace(/\/$/, '');
-            const currentOrigin = (window.location.origin || '').replace(/\/$/, '');
-            const alreadyOnServer = serverUrl && currentOrigin && serverUrl === currentOrigin;
-
-            if (serverUrl) {
-                window._setServerUrl(serverUrl);
+            if (saved) {
                 try {
-                    const ctrl = new AbortController();
-                    const timer = setTimeout(() => ctrl.abort(), 15000);
-                    const test = await fetch(serverUrl + '/api/config', {credentials:'include', signal:ctrl.signal}).then(r=>r.json());
-                    clearTimeout(timer);
+                    const test = await fetch(saved.replace(/\/$/, '') + '/api/config', {credentials:'include'}).then(r=>r.json());
                     if (test && test.success !== undefined) {
                         $('serverScreen').classList.remove('active');
                         $('authScreen').classList.add('active');
-                    } else {
-                        $('serverScreen').classList.add('active');
-                        $('authScreen').classList.remove('active');
-                    }
+                    } else { throw new Error('fail'); }
                 } catch (_) {
-                    if (alreadyOnServer) {
-                        $('serverScreen').classList.add('active');
-                        $('authScreen').classList.remove('active');
-                    } else {
-                        window.location.href = serverUrl + '/';
-                        return;
-                    }
+                    window._setServerUrl(saved);
+                    window.location.href = saved.replace(/\/$/, '') + '/';
+                    return;
                 }
-            } else if (window.location.protocol !== 'file:' && currentOrigin && currentOrigin !== 'null') {
-                window._setServerUrl(currentOrigin);
+            } else if (window.location.protocol !== 'file:' && window.location.origin && window.location.origin !== 'null') {
                 try {
-                    const ctrl = new AbortController();
-                    const timer = setTimeout(() => ctrl.abort(), 15000);
-                    const test = await fetch('/api/config', {credentials:'include', signal:ctrl.signal}).then(r=>r.json());
-                    clearTimeout(timer);
+                    const test = await fetch('/api/config', {credentials:'include'}).then(r=>r.json());
                     if (test && test.success !== undefined) {
                         $('serverScreen').classList.remove('active');
                         $('authScreen').classList.add('active');
-                        localStorage.setItem('narabote-server-url', currentOrigin);
                     } else {
                         $('serverScreen').classList.add('active');
                         $('authScreen').classList.remove('active');
@@ -316,27 +296,23 @@
                 $('serverScreen').classList.add('active');
                 $('authScreen').classList.remove('active');
             }
-            $('serverUrl').value = serverUrl || '';
+            $('serverUrl').value = saved || '';
             $('serverConnectBtn').onclick = async () => {
                 const url = $('serverUrl').value.trim().replace(/\/$/, '');
                 if (!url) { $('serverStatus').style.display=''; $('serverStatus').textContent='Введите адрес'; $('serverStatus').style.color='#e74c3c'; return; }
                 $('serverStatus').style.display=''; $('serverStatus').textContent='Подключение...'; $('serverStatus').style.color='#f39c12';
                 try {
-                    const ctrl = new AbortController();
-                    const timer = setTimeout(() => ctrl.abort(), 15000);
-                    const r = await fetch(url + '/api/config', {credentials:'include', signal:ctrl.signal}).then(r2=>r2.json());
-                    clearTimeout(timer);
+                    const r = await fetch(url + '/api/config', {credentials:'include'}).then(r=>r.json());
                     if (r && r.success !== undefined) {
                         window._setServerUrl(url);
+                        $('serverStatus').textContent='Подключено! Загрузка...'; $('serverStatus').style.color='#2ecc71';
                         localStorage.setItem('narabote-server-url', url);
-                        $('serverScreen').classList.remove('active');
-                        $('authScreen').classList.add('active');
-                        initApp();
-                    } else {
-                        $('serverStatus').textContent='Сервер не отвечает корректно'; $('serverStatus').style.color='#e74c3c';
-                    }
+                        setTimeout(() => { window.location.href = url + '/'; }, 300);
+                    } else { throw new Error('bad response'); }
                 } catch (e) {
-                    $('serverStatus').textContent='Не удалось подключиться (сервер спит?)'; $('serverStatus').style.color='#e74c3c';
+                    localStorage.setItem('narabote-server-url', url);
+                    window._setServerUrl(url);
+                    window.location.href = url + '/';
                 }
             };
             $('serverOfflineBtn').onclick = () => { $('serverScreen').classList.remove('active'); $('authScreen').classList.add('active'); initApp(); };
@@ -683,6 +659,7 @@
         initDragDrop();
         restoreBlockOrder();
         applyDisplaySettings();
+        initTeamChat();
     }
 
     /* ==========================================================
@@ -886,6 +863,7 @@
         renderDatesPanel();
         renderIntersections();
         renderStats();
+        renderDashboard();
         if (selectedDate) {
             renderDateDetails(selectedDate);
             if (isManagerOrAdmin()) renderManagerPanel(selectedDate);
@@ -1533,6 +1511,7 @@
                 html += '<div class="book-btn-wrap"><p class="hint">⛔ Все слоты заняты</p></div>';
             }
         } else {
+            /* Работник: никаких кнопок бронирования, только статус */
             if (locked) {
                 html += '<div style="font-size:12px;color:var(--danger);margin:6px 0">🔒 Дата заблокирована руководителем — отпуск недоступен</div>';
             } else if (realEmps.length > 0) {
@@ -1540,26 +1519,6 @@
             } else {
                 html += '<div class="detail-status ' + statusCls + '">' + statusLabel + '</div>';
             }
-            const myWork = workData.some(w => w.date === dateStr && w.emp === employeeId);
-            const myVac = vacData.some(v => v.date === dateStr && v.emp === employeeId);
-            const myTrip = tripData.some(t => t.date === dateStr && t.emp === employeeId);
-            html += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">';
-            if (myWork) {
-                html += '<button class="btn btn-danger btn-sm" id="remWorkBtn">🔨 Убрать рабочий день</button>';
-            } else if (!locked && !wknd && !hol) {
-                html += '<button class="btn btn-success btn-sm" id="addWorkBtn">🔨 Рабочий день</button>';
-            }
-            if (myVac) {
-                html += '<button class="btn btn-danger btn-sm" id="remVacBtn">🏖 Убрать отпуск</button>';
-            } else if (!locked && !realEmps.length) {
-                html += '<button class="btn btn-primary btn-sm" id="addVacBtn">🏖 Отпуск</button>';
-            }
-            if (myTrip) {
-                html += '<button class="btn btn-danger btn-sm" id="remTripBtn">✈ Убрать командировку</button>';
-            } else {
-                html += '<button class="btn btn-warning btn-sm" id="addTripBtn">✈ Командировка</button>';
-            }
-            html += '</div>';
         }
 
         $('dateContent').innerHTML = html;
@@ -1575,43 +1534,6 @@
         $('dateContent').querySelectorAll('[data-cancel-d]').forEach(btn => {
             btn.onclick = () => confirmCancel(btn.dataset.cancelD, btn.dataset.cancelE);
         });
-        const addWorkBtn = $('addWorkBtn');
-        if (addWorkBtn) addWorkBtn.onclick = async () => {
-            const d = getDefaults();
-            const res = await window.api.setWork(employeeId, dateStr, d.start, d.end, d.lunch, d.rate, d.hourlyWage, 0, '');
-            if (res.success) { toast('🔨 Рабочий день добавлен', 'success'); await loadAll(); }
-            else toast(res.message, 'error');
-        };
-        const remWorkBtn = $('remWorkBtn');
-        if (remWorkBtn) remWorkBtn.onclick = async () => {
-            const res = await window.api.removeWork(employeeId, dateStr);
-            if (res.success) { toast('Рабочий день убран', 'success'); await loadAll(); }
-            else toast(res.message, 'error');
-        };
-        const addVacBtn = $('addVacBtn');
-        if (addVacBtn) addVacBtn.onclick = async () => {
-            const res = await window.api.addVacation(employeeId, dateStr);
-            if (res.success) { toast('⏳ Запрос на отпуск отправлен', 'info'); await loadAll(); }
-            else toast(res.message, 'error');
-        };
-        const remVacBtn = $('remVacBtn');
-        if (remVacBtn) remVacBtn.onclick = async () => {
-            const res = await window.api.removeVacation(employeeId, dateStr);
-            if (res.success) { toast('Отпуск убран', 'success'); await loadAll(); }
-            else toast(res.message, 'error');
-        };
-        const addTripBtn = $('addTripBtn');
-        if (addTripBtn) addTripBtn.onclick = async () => {
-            const res = await window.api.addTrip(employeeId, dateStr);
-            if (res.success) { toast('✈ Командировка добавлена', 'success'); await loadAll(); }
-            else toast(res.message, 'error');
-        };
-        const remTripBtn = $('remTripBtn');
-        if (remTripBtn) remTripBtn.onclick = async () => {
-            const res = await window.api.removeTrip(employeeId, dateStr);
-            if (res.success) { toast('Командировка убрана', 'success'); await loadAll(); }
-            else toast(res.message, 'error');
-        };
     }
 
      /* ==========================================================
@@ -3114,6 +3036,20 @@
         popup.querySelector('.task-notify-close').onclick = () => popup.remove();
         setTimeout(() => { if (popup.parentNode) popup.remove(); }, 15000);
         toast('📌 Через 5 мин: ' + (data.title || 'Задача'), 'info');
+        pushNotify('📌 Задача скоро', (data.time || '') + ' — ' + (data.title || 'Задача'));
+    }
+
+    function pushNotify(title, body) {
+        if (Notification.permission === 'granted') {
+            try { new Notification(title, { body, icon: '/icon-192.png', tag: 'narabote-' + Date.now() }); } catch (_) {}
+        } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then(p => {
+                if (p === 'granted') try { new Notification(title, { body, icon: '/icon-192.png' }); } catch (_) {}
+            });
+        }
+        if (window._isWebMode && navigator.serviceWorker && navigator.serviceWorker.controller) {
+            try { navigator.serviceWorker.ready.then(reg => reg.showNotification(title, { body, tag: 'narabote-push' })); } catch (_) {}
+        }
     }
 
     /* --- Уведомления о заметках (edit/reply) --- */
@@ -3125,9 +3061,11 @@
                 res.data.forEach(e => {
                     if (e.action === 'edit-note') {
                         toast('✏️ Заметка отредактирована: ' + (e.details || ''), 'info');
+                        pushNotify('✏️ Заметка изменена', e.details || '');
                     } else if (e.action === 'add-note') {
                         const snippet = e.details ? e.details.split(':').slice(1).join(':').trim() : '';
                         toast('💬 Новая заметка' + (snippet ? ': ' + snippet.slice(0, 30) : ''), 'info');
+                        pushNotify('💬 Новая заметка', snippet || '');
                     }
                 });
             }
@@ -3423,6 +3361,8 @@
         { id: 'notes', name: 'Заметки' },
         { id: 'tasks', name: 'Задачи' },
         { id: 'stats', name: 'Статистика' },
+        { id: 'dashboard', name: 'Дашборд' },
+        { id: 'teamchat', name: 'Чат команды' },
         { id: 'salary', name: 'Зарплата' },
         { id: 'management', name: 'Управление' },
         { id: 'admin', name: 'Администрирование' },
@@ -3476,7 +3416,161 @@
     };
 
     /* ==========================================================
-       *  СТАРТ
+      *  ДАШБОРД (графики, KPI)
+      * ========================================================== */
+
+    function renderDashboard() {
+        const showEmps = isWorker() ? [employeeId] : allEmployees;
+        const emp = viewingEmp || employeeId;
+        const wAll = empWork(emp);
+        const vAll = empVac(emp);
+
+        let totalHours = 0, totalNorm = 0, workDays = 0, vacDays = vAll.size;
+        const monthlyHours = {};
+        const monthlyNorm = {};
+        wAll.forEach((i, k) => {
+            const f = calcFact(i), n = calcNorm(i, k);
+            totalHours += f; totalNorm += n; workDays++;
+            const [d, m, y] = k.split('.').map(Number);
+            const mk = (m < 10 ? '0' : '') + m + '.' + y;
+            monthlyHours[mk] = (monthlyHours[mk] || 0) + f;
+            monthlyNorm[mk] = (monthlyNorm[mk] || 0) + n;
+        });
+        const overtime = totalHours - totalNorm;
+        const vacLeft = 28 - vacDays;
+
+        let kpiHtml = '';
+        kpiHtml += '<div class="dash-kpi blue"><div class="dash-kpi-value">' + workDays + '</div><div class="dash-kpi-label">Рабочих дней</div></div>';
+        kpiHtml += '<div class="dash-kpi blue"><div class="dash-kpi-value">' + totalHours.toFixed(1) + '</div><div class="dash-kpi-label">Часов отработано</div></div>';
+        kpiHtml += '<div class="dash-kpi ' + (overtime >= 0 ? 'green' : 'red') + '"><div class="dash-kpi-value">' + (overtime >= 0 ? '+' : '') + overtime.toFixed(1) + '</div><div class="dash-kpi-label">Переработка</div></div>';
+        kpiHtml += '<div class="dash-kpi yellow"><div class="dash-kpi-value">' + vacDays + '</div><div class="dash-kpi-label">Дней отпуска</div></div>';
+        kpiHtml += '<div class="dash-kpi ' + (vacLeft > 0 ? 'green' : vacLeft === 0 ? 'yellow' : 'red') + '"><div class="dash-kpi-value">' + vacLeft + '</div><div class="dash-kpi-label">Остаток отпуска</div></div>';
+        $('dashSummary').innerHTML = kpiHtml;
+
+        const months = Object.keys(monthlyHours).sort().slice(-6);
+        drawBarChart('dashHoursChart', months.map(m => monthlyHours[m] || 0), months.map(m => monthlyNorm[m] || 0), months, '#4a7cff', '#2ecc71');
+        drawVacationChart('dashVacChart', showEmps);
+        drawBarChart('dashOvertimeChart', months.map(m => (monthlyHours[m] || 0) - (monthlyNorm[m] || 0)), null, months, overtime >= 0 ? '#2ecc71' : '#e74c3c', null);
+    }
+
+    function drawBarChart(canvasId, values1, values2, labels, color1, color2) {
+        const canvas = $(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (!values1.length) { ctx.fillStyle = '#666'; ctx.font = '12px sans-serif'; ctx.fillText('Нет данных', 10, H / 2); return; }
+        const maxVal = Math.max(...values1, ...(values2 || [0]), 1) * 1.15;
+        const barW = Math.min(30, (W - 40) / values1.length - 4);
+        const startX = 35, startY = H - 25, chartH = startY - 15;
+
+        ctx.fillStyle = '#555'; ctx.font = '10px sans-serif';
+        for (let i = 0; i <= 4; i++) {
+            const y = startY - (chartH * i / 4);
+            ctx.fillText((maxVal * i / 4).toFixed(0), 2, y + 3);
+            ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+        values1.forEach((v, i) => {
+            const x = startX + i * (barW + (values2 ? 6 : 4)) + 4;
+            const h = Math.max(1, (v / maxVal) * chartH);
+            ctx.fillStyle = color1;
+            ctx.fillRect(x, startY - h, barW, h);
+            if (values2) {
+                const h2 = Math.max(1, (values2[i] / maxVal) * chartH);
+                ctx.fillStyle = color2;
+                ctx.fillRect(x + barW + 1, startY - h2, barW, h2);
+            }
+            ctx.fillStyle = '#888'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText(labels[i], x + barW / 2, startY + 12);
+            ctx.textAlign = 'left';
+        });
+    }
+
+    function drawVacationChart(canvasId, emps) {
+        const canvas = $(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (!emps.length) { ctx.fillStyle = '#666'; ctx.font = '12px sans-serif'; ctx.fillText('Нет данных', 10, H / 2); return; }
+        const maxVal = 28;
+        const barH = Math.min(20, (H - 30) / emps.length - 4);
+        const startY = 10, startX = 60, chartW = W - startX - 10;
+
+        emps.forEach((emp, i) => {
+            const v = empVac(emp).size;
+            const y = startY + i * (barH + 4);
+            const usedW = (v / maxVal) * chartW;
+            const leftW = ((maxVal - v) / maxVal) * chartW;
+            ctx.fillStyle = '#e67e22'; ctx.fillRect(startX, y, usedW, barH);
+            ctx.fillStyle = '#2ecc7144'; ctx.fillRect(startX + usedW, y, leftW, barH);
+            ctx.fillStyle = '#ccc'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+            ctx.fillText(emp.length > 8 ? emp.substring(0, 8) + '..' : emp, startX - 4, y + barH - 4);
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#fff'; ctx.font = '9px sans-serif';
+            if (usedW > 20) ctx.fillText(v + '/' + maxVal, startX + 4, y + barH - 4);
+        });
+    }
+
+    /* ==========================================================
+      *  ЧАТ КОМАНДЫ
+      * ========================================================== */
+
+    let _teamChatPollTimer = null;
+    let _lastTeamChatTs = '';
+
+    function initTeamChat() {
+        const sendBtn = $('teamChatSendBtn');
+        const input = $('teamChatInput');
+        if (!sendBtn || !input) return;
+        sendBtn.onclick = () => sendTeamChatMsg();
+        input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) sendTeamChatMsg(); };
+        loadTeamChat();
+        if (_teamChatPollTimer) clearInterval(_teamChatPollTimer);
+        _teamChatPollTimer = setInterval(loadTeamChat, 15000);
+    }
+
+    async function sendTeamChatMsg() {
+        const input = $('teamChatInput');
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        await window.api.addNote('team-chat', text, '', []);
+        loadTeamChat();
+    }
+
+    async function loadTeamChat() {
+        const res = await window.api.loadNotes('team-chat');
+        if (!res.success || !res.data) return;
+        const msgs = res.data;
+        const container = $('teamChatMessages');
+        if (!container) return;
+        const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 30;
+        let html = '';
+        msgs.slice(-50).forEach(m => {
+            const isMine = m.author === (employeeId || 'admin');
+            html += '<div class="team-chat-msg' + (isMine ? ' mine' : '') + '">';
+            html += '<div class="team-chat-msg-header"><span class="team-chat-msg-author">' + escHtml(m.authorName || m.author) + '</span><span class="team-chat-msg-time">' + formatTime(m.ts) + '</span></div>';
+            html += '<div class="team-chat-msg-text">' + escHtml(m.text) + '</div>';
+            html += '</div>';
+        });
+        container.innerHTML = html || '<p class="hint">Нет сообщений</p>';
+        if (atBottom) container.scrollTop = container.scrollHeight;
+        if (msgs.length) _lastTeamChatTs = msgs[msgs.length - 1].ts;
+    }
+
+    function formatTime(ts) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        const now = new Date();
+        const sameDay = d.toDateString() === now.toDateString();
+        const t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+        if (sameDay) return t;
+        return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ' ' + t;
+    }
+
+    /* ==========================================================
+        *  СТАРТ
       * ========================================================== */
 
     init();
